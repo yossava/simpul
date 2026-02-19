@@ -1,5 +1,5 @@
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "https://reqres.in/api";
-const PROJECT_ID = Number(process.env.NEXT_PUBLIC_PROJECT_ID ?? "3664");
+const BASE_URL = process.env.API_BASE_URL ?? "https://reqres.in/api";
+const PROJECT_ID = Number(process.env.PROJECT_ID ?? "3664");
 
 export interface ChatMessage {
   id: string;
@@ -25,32 +25,55 @@ export interface Chat {
   messages: ChatMessage[];
 }
 
+export interface Task {
+  id: string;
+  title: string;
+  dueDate: string;
+  daysLeft: number | null;
+  description: string;
+  completed: boolean;
+}
+
 interface ApiRecord {
   id: string;
-  data: Omit<Chat, "id"> & { type?: string };
+  data: Record<string, unknown> & { type?: string };
 }
 
 interface ApiResponse {
   data: ApiRecord[];
 }
 
-export async function fetchChats(): Promise<Chat[]> {
+function getHeaders() {
   const API_KEY = process.env.REQRES_API_KEY;
   if (!API_KEY) throw new Error("Missing required environment variable: REQRES_API_KEY");
-
-  const headers = {
+  return {
     "x-api-key": API_KEY,
     "X-Reqres-Env": "prod",
     "Content-Type": "application/json",
   };
+}
 
+async function fetchAll(): Promise<ApiRecord[]> {
+  const headers = getHeaders();
   const res = await fetch(
     `${BASE_URL}/collections/task/records?project_id=${PROJECT_ID}`,
     { headers, cache: "no-store" }
   );
-  if (!res.ok) throw new Error("Failed to fetch chats");
+  if (!res.ok) throw new Error("Failed to fetch records");
   const json: ApiResponse = await res.json();
-  return json.data
+  return json.data;
+}
+
+export async function fetchChats(): Promise<Chat[]> {
+  const records = await fetchAll();
+  return records
     .filter((r) => r.data?.type === "chat")
-    .map((r) => ({ id: r.id, ...r.data }));
+    .map((r) => ({ id: r.id, ...(r.data as Omit<Chat, "id">) }));
+}
+
+export async function fetchTasks(): Promise<Task[]> {
+  const records = await fetchAll();
+  return records
+    .filter((r) => r.data?.type === "task")
+    .map((r) => ({ id: r.id, ...(r.data as Omit<Task, "id">) }));
 }

@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Zap } from "lucide-react";
 import InboxPanel from "./InboxPanel";
+import TaskPanel from "./TaskPanel";
 
 type Panel = "inbox" | "task" | null;
 
@@ -67,6 +68,11 @@ export default function FAB() {
 
   return (
     <div ref={containerRef} className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-3">
+      {activePanel === "task" && (
+        <div className="animate-in mb-2">
+          <TaskPanel />
+        </div>
+      )}
       {activePanel === "inbox" && (
         <div className="animate-in mb-2">
           <InboxPanel onClose={() => setActivePanel(null)} />
@@ -74,48 +80,55 @@ export default function FAB() {
       )}
 
       <div className="flex items-end gap-3">
-        {subButtons.map((btn, i) => {
-          const isActive = activePanel === btn.id;
-          const isVisible = expanded || !!activePanel;
+        {[...subButtons]
+          .sort((a, b) => {
+            if (!activePanel) return 0;
+            if (a.id === activePanel) return 1;
+            if (b.id === activePanel) return -1;
+            return 0;
+          })
+          .map((btn, i) => {
+            const isActive = activePanel === btn.id;
+            const isVisible = expanded || !!activePanel;
 
-          return (
-            <div
-              key={btn.id}
-              className={`flex flex-col items-center gap-1 transition-all duration-200 ${
-                isVisible
-                  ? "opacity-100 translate-x-0"
-                  : "opacity-0 translate-x-6 pointer-events-none"
-              }`}
-              style={{ transitionDelay: expanded && !activePanel ? `${(subButtons.length - 1 - i) * 60}ms` : "0ms" }}
-            >
-              {!isActive && (
-                <span className="text-white text-xs font-medium select-none">
-                  {btn.label}
-                </span>
-              )}
+            return (
+              <div
+                key={btn.id}
+                className={`flex flex-col items-center gap-1 transition-all duration-200 ${
+                  isVisible
+                    ? "opacity-100 translate-x-0"
+                    : "opacity-0 translate-x-6 pointer-events-none"
+                }`}
+                style={{ transitionDelay: expanded && !activePanel ? `${(subButtons.length - 1 - i) * 60}ms` : "0ms" }}
+              >
+                {!isActive && (
+                  <span className="text-white text-xs font-medium select-none">
+                    {btn.label}
+                  </span>
+                )}
 
-              {isActive ? (
-                <div className="relative flex items-center justify-center w-[76px] h-[60px]">
-                  <div className="absolute left-0 w-[60px] h-[60px] rounded-full bg-[#2a2a2a]" />
+                {isActive ? (
+                  <div className="relative flex items-center justify-center w-[76px] h-[60px]">
+                    <div className="absolute left-0 w-[60px] h-[60px] rounded-full bg-[#2a2a2a]" />
+                    <button
+                      onClick={() => handlePanelToggle(btn.id)}
+                      className="absolute right-0 w-[60px] h-[60px] rounded-full shadow-xl flex items-center justify-center"
+                      style={{ backgroundColor: btn.activeColor }}
+                    >
+                      {btn.icon(true)}
+                    </button>
+                  </div>
+                ) : (
                   <button
                     onClick={() => handlePanelToggle(btn.id)}
-                    className="absolute right-0 w-[60px] h-[60px] rounded-full shadow-xl flex items-center justify-center"
-                    style={{ backgroundColor: btn.activeColor }}
+                    className="w-[52px] h-[52px] rounded-full shadow-lg bg-white flex items-center justify-center transition-all duration-150 hover:scale-105 active:scale-95"
                   >
-                    {btn.icon(true)}
+                    {btn.icon(false)}
                   </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => handlePanelToggle(btn.id)}
-                  className="w-[52px] h-[52px] rounded-full shadow-lg bg-white flex items-center justify-center transition-all duration-150 hover:scale-105 active:scale-95"
-                >
-                  {btn.icon(false)}
-                </button>
-              )}
-            </div>
-          );
-        })}
+                )}
+              </div>
+            );
+          })}
 
         {!activePanel && (
           <button
