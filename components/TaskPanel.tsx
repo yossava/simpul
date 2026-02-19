@@ -23,12 +23,22 @@ function LabelPicker({
   selected,
   onChange,
   onClose,
+  anchorRef,
 }: {
   selected: string[];
   onChange: (labels: string[]) => void;
   onClose: () => void;
+  anchorRef?: React.RefObject<HTMLElement | null>;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [openUp, setOpenUp] = useState(false);
+
+  useEffect(() => {
+    if (anchorRef?.current) {
+      const rect = anchorRef.current.getBoundingClientRect();
+      setOpenUp(window.innerHeight - rect.bottom < 220);
+    }
+  }, [anchorRef]);
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -49,7 +59,8 @@ function LabelPicker({
   return (
     <div
       ref={ref}
-      className="absolute left-0 top-[calc(100%+4px)] z-20 bg-white rounded-lg shadow-xl border border-[#BDBDBD] w-[180px] py-1"
+      className="absolute left-0 z-20 bg-white rounded-lg shadow-xl border border-[#BDBDBD] w-[180px] py-1"
+      style={openUp ? { bottom: "calc(100% + 4px)" } : { top: "calc(100% + 4px)" }}
       onMouseDown={(e) => e.stopPropagation()}
     >
       {LABELS.map((label) => {
@@ -85,10 +96,11 @@ function LabelRow({
   onClosePicker: () => void;
   onChangeLabels: (next: string[]) => void;
 }) {
+  const bookmarkRef = useRef<HTMLButtonElement>(null);
   return (
     <div className="flex items-center gap-3 bg-[#F9F9F9] rounded-lg px-3 py-2">
       <div className="relative shrink-0">
-        <button onClick={onTogglePicker} className="hover:opacity-70 transition-opacity">
+        <button ref={bookmarkRef} onClick={onTogglePicker} className="hover:opacity-70 transition-opacity">
           <Bookmark
             size={16}
             className={labels.length > 0 ? "text-[#2F80ED]" : "text-[#828282]"}
@@ -99,6 +111,7 @@ function LabelRow({
             selected={labels}
             onChange={onChangeLabels}
             onClose={onClosePicker}
+            anchorRef={bookmarkRef}
           />
         )}
       </div>
@@ -279,7 +292,7 @@ function TaskMenu({ onDelete, onClose }: { onDelete: () => void; onClose: () => 
   );
 }
 
-function NewTaskForm({ onSave, onCancel }: { onSave: (task: Task) => void; onCancel: () => void }) {
+function NewTaskForm({ onSave, onCancel, onSaveRef, excludeRef }: { onSave: (task: Task) => void; onCancel: () => void; onSaveRef?: React.MutableRefObject<(() => void) | null>; excludeRef?: React.RefObject<HTMLElement | null> }) {
   const [title, setTitle] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [desc, setDesc] = useState("");
@@ -309,6 +322,7 @@ function NewTaskForm({ onSave, onCancel }: { onSave: (task: Task) => void; onCan
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (datePickerOpenRef.current) return;
+      if (excludeRef?.current?.contains(e.target as Node)) return;
       if (formRef.current && !formRef.current.contains(e.target as Node)) {
         if (titleRef.current.trim()) {
           onSave({
@@ -341,6 +355,8 @@ function NewTaskForm({ onSave, onCancel }: { onSave: (task: Task) => void; onCan
       labels,
     });
   }
+
+  if (onSaveRef) onSaveRef.current = handleSave;
 
   return (
     <div ref={formRef} className="border-b border-[#BDBDBD]">
@@ -597,6 +613,24 @@ function TaskItem({
   );
 }
 
+function NewTaskFormWrapper(props: { onSave: (task: Task) => void; onCancel: () => void; triggerSaveRef?: React.MutableRefObject<(() => void) | null>; excludeRef?: React.RefObject<HTMLElement | null> }) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const { triggerSaveRef, excludeRef, ...formProps } = props;
+
+  // expose a save trigger to the parent via triggerSaveRef
+  const internalSaveRef = useRef<(() => void) | null>(null);
+  if (triggerSaveRef) triggerSaveRef.current = () => internalSaveRef.current?.();
+
+  useEffect(() => {
+    wrapperRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, []);
+  return (
+    <div ref={wrapperRef}>
+      <NewTaskForm {...formProps} onSaveRef={internalSaveRef} excludeRef={excludeRef} />
+    </div>
+  );
+}
+
 const TASK_CATEGORIES = ["My Tasks", "Personal Errands", "Urgent To-Do"];
 
 type TaskEntry = Task & { expanded: boolean };
@@ -607,6 +641,8 @@ export default function TaskPanel() {
   const [loading, setLoading] = useState(true);
   const [addingTask, setAddingTask] = useState(false);
   const [category, setCategory] = useState("My Tasks");
+  const triggerSaveRef = useRef<(() => void) | null>(null);
+  const saveButtonRef = useRef<HTMLButtonElement>(null);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const categoryRef = useRef<HTMLDivElement>(null);
 
@@ -715,10 +751,17 @@ export default function TaskPanel() {
           )}
         </div>
         <button
-          onClick={() => setAddingTask(true)}
+          ref={saveButtonRef}
+          onClick={() => {
+            if (addingTask) {
+              triggerSaveRef.current?.();
+            } else {
+              setAddingTask(true);
+            }
+          }}
           className="bg-[#2F80ED] text-white px-4 py-2 rounded-md text-sm font-semibold hover:bg-[#2567c4] transition-colors"
         >
-          New Task
+          {addingTask ? "Save" : "New Task"}
         </button>
       </div>
 
@@ -740,9 +783,11 @@ export default function TaskPanel() {
               />
             ))}
             {addingTask && (
-              <NewTaskForm
+              <NewTaskFormWrapper
                 onSave={handleNewTaskSave}
                 onCancel={() => setAddingTask(false)}
+                triggerSaveRef={triggerSaveRef}
+                excludeRef={saveButtonRef}
               />
             )}
           </>
