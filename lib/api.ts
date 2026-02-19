@@ -38,6 +38,7 @@ export interface Task {
   daysLeft: number | null;
   description: string;
   completed: boolean;
+  labels: string[];
 }
 
 function getHeaders() {

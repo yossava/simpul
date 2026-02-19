@@ -1,8 +1,129 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ChevronDown, ChevronUp, MoreHorizontal, Clock, Pencil, Calendar, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronUp, MoreHorizontal, Clock, Pencil, Calendar, ChevronLeft, ChevronRight, Bookmark } from "lucide-react";
 import { Task } from "@/lib/api";
+
+const LABELS: {
+  name: string;
+  base: string;
+  selected: string;
+}[] = [
+  { name: "Important ASAP",  base: "bg-[#DDEEFF] text-[#333333]",  selected: "border-2 border-[#2F80ED]" },
+  { name: "Offline Meeting", base: "bg-[#FDEBD0] text-[#333333]",  selected: "border-2 border-[#E5A443]" },
+  { name: "Virtual Meeting", base: "bg-[#FEF9C3] text-[#333333]",  selected: "border-2 border-[#F2C94C]" },
+  { name: "ASAP",            base: "bg-[#D5F5E3] text-[#333333]",  selected: "border-2 border-[#27AE60]" },
+  { name: "Client Related",  base: "bg-[#D5F5E3] text-[#333333]",  selected: "border-2 border-[#6FCF97]" },
+  { name: "Self Task",       base: "bg-[#E8DAFF] text-[#333333]",  selected: "border-2 border-[#9B51E0]" },
+  { name: "Appointments",    base: "bg-[#FFD6E0] text-[#333333]",  selected: "border-2 border-[#EB5757]" },
+  { name: "Court Related",   base: "bg-[#D6EEF8] text-[#333333]",  selected: "border-2 border-[#56CCF2]" },
+];
+
+function LabelPicker({
+  selected,
+  onChange,
+  onClose,
+}: {
+  selected: string[];
+  onChange: (labels: string[]) => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [onClose]);
+
+  function toggle(name: string) {
+    if (selected.includes(name)) {
+      onChange(selected.filter((l) => l !== name));
+    } else {
+      onChange([...selected, name]);
+    }
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="absolute left-0 top-[calc(100%+4px)] z-20 bg-white rounded-lg shadow-xl border border-[#BDBDBD] w-[180px] py-1"
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      {LABELS.map((label) => {
+        const isSelected = selected.includes(label.name);
+        return (
+          <button
+            key={label.name}
+            onClick={() => toggle(label.name)}
+            className="w-full px-2 py-0.5 text-left"
+          >
+            <span
+              className={`inline-block w-full px-3 py-1 rounded text-xs font-semibold ${label.base} ${isSelected ? label.selected : "border border-transparent"}`}
+            >
+              {label.name}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function LabelRow({
+  labels,
+  pickerOpen,
+  onTogglePicker,
+  onClosePicker,
+  onChangeLabels,
+}: {
+  labels: string[];
+  pickerOpen: boolean;
+  onTogglePicker: () => void;
+  onClosePicker: () => void;
+  onChangeLabels: (next: string[]) => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 bg-[#F9F9F9] rounded-lg px-3 py-2">
+      <div className="relative shrink-0">
+        <button onClick={onTogglePicker} className="hover:opacity-70 transition-opacity">
+          <Bookmark
+            size={16}
+            className={labels.length > 0 ? "text-[#2F80ED]" : "text-[#828282]"}
+          />
+        </button>
+        {pickerOpen && (
+          <LabelPicker
+            selected={labels}
+            onChange={onChangeLabels}
+            onClose={onClosePicker}
+          />
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {labels.length === 0 ? (
+          <button onClick={onTogglePicker} className="text-sm text-[#828282]">
+            No Label
+          </button>
+        ) : (
+          labels.map((l) => {
+            const def = LABELS.find((x) => x.name === l);
+            return (
+              <span
+                key={l}
+                className={`px-2 py-0.5 rounded text-xs font-semibold ${def?.base ?? "bg-[#F2F2F2] text-[#333333]"}`}
+              >
+                {l}
+              </span>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
 
 const MONTHS = [
   "January","February","March","April","May","June",
@@ -162,16 +283,20 @@ function NewTaskForm({ onSave, onCancel }: { onSave: (task: Task) => void; onCan
   const [title, setTitle] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [desc, setDesc] = useState("");
+  const [labels, setLabels] = useState<string[]>([]);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [labelPickerOpen, setLabelPickerOpen] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef(title);
   const dueDateRef = useRef(dueDate);
   const descRef = useRef(desc);
+  const labelsRef = useRef(labels);
 
   titleRef.current = title;
   dueDateRef.current = dueDate;
   descRef.current = desc;
+  labelsRef.current = labels;
 
   useEffect(() => {
     titleInputRef.current?.focus();
@@ -193,6 +318,7 @@ function NewTaskForm({ onSave, onCancel }: { onSave: (task: Task) => void; onCan
             daysLeft: null,
             description: descRef.current,
             completed: false,
+            labels: labelsRef.current,
           });
         } else {
           onCancel();
@@ -212,6 +338,7 @@ function NewTaskForm({ onSave, onCancel }: { onSave: (task: Task) => void; onCan
       daysLeft: null,
       description: desc,
       completed: false,
+      labels,
     });
   }
 
@@ -276,6 +403,14 @@ function NewTaskForm({ onSave, onCancel }: { onSave: (task: Task) => void; onCan
             className="flex-1 text-sm text-[#333333] outline-none border-b border-transparent focus:border-[#BDBDBD] transition-colors bg-transparent pb-0.5"
           />
         </div>
+
+        <LabelRow
+          labels={labels}
+          pickerOpen={labelPickerOpen}
+          onTogglePicker={() => setLabelPickerOpen((v) => !v)}
+          onClosePicker={() => setLabelPickerOpen(false)}
+          onChangeLabels={setLabels}
+        />
       </div>
     </div>
   );
@@ -298,6 +433,8 @@ function TaskItem({
   const [desc, setDesc] = useState(task.description);
   const [dueDate, setDueDate] = useState(task.dueDate);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [labels, setLabels] = useState<string[]>(task.labels ?? []);
+  const [labelPickerOpen, setLabelPickerOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dateButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -323,6 +460,19 @@ function TaskItem({
       onUpdate(task.id, { description: desc });
     }
   }
+
+  function handleLabelsChange(next: string[]) {
+    setLabels(next);
+    onUpdate(task.id, { labels: next });
+  }
+
+  const daysLeftLabel = (() => {
+    if (checked || !dueDate) return null;
+    const parsed = parseDueDate(dueDate);
+    if (!parsed) return null;
+    const diff = Math.ceil((parsed.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    return diff < 0 ? "Overdue" : `${diff} Days Left`;
+  })();
 
   return (
     <div className="border-b border-[#BDBDBD] last:border-b-0">
@@ -352,9 +502,9 @@ function TaskItem({
               {task.title}
             </span>
             <div className="flex items-center gap-2 shrink-0 mt-0.5">
-              {!checked && task.daysLeft !== null && (
+              {daysLeftLabel && (
                 <span className="text-xs text-[#EB5757] font-semibold whitespace-nowrap">
-                  {task.daysLeft} Days Left
+                  {daysLeftLabel}
                 </span>
               )}
               <span className="text-xs text-[#333333] whitespace-nowrap">{dueDate}</span>
@@ -433,6 +583,14 @@ function TaskItem({
               </span>
             )}
           </div>
+
+          <LabelRow
+            labels={labels}
+            pickerOpen={labelPickerOpen}
+            onTogglePicker={() => setLabelPickerOpen((v) => !v)}
+            onClosePicker={() => setLabelPickerOpen(false)}
+            onChangeLabels={handleLabelsChange}
+          />
         </div>
       )}
     </div>
@@ -479,7 +637,9 @@ export default function TaskPanel() {
   function handleDelete(id: string) {
     setTasks((prev) => prev.filter((t) => t.id !== id));
     setNewTasks((prev) => prev.filter((t) => t.id !== id));
-    fetch(`/api/tasks/${id}`, { method: "DELETE" });
+    fetch(`/api/tasks/${id}`, { method: "DELETE" }).catch((err) =>
+      console.error("Failed to delete task:", err)
+    );
   }
 
   function handleUpdate(id: string, patch: Partial<Omit<Task, "id">>) {
@@ -494,7 +654,7 @@ export default function TaskPanel() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(taskData),
-      });
+      }).catch((err) => console.error("Failed to update task:", err));
     }
   }
 
@@ -512,6 +672,7 @@ export default function TaskPanel() {
           daysLeft: newTask.daysLeft,
           description: newTask.description,
           completed: newTask.completed,
+          labels: newTask.labels,
         }),
       });
       if (res.ok) {
