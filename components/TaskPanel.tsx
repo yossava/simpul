@@ -11,7 +11,6 @@ const MONTHS = [
 const DAY_HEADERS = ["M","T","W","Th","F","S","S"];
 
 function parseDueDate(dateStr: string): Date | null {
-  // Expects "d/M/YYYY" or "dd/MM/YYYY"
   const parts = dateStr.split("/");
   if (parts.length !== 3) return null;
   const d = parseInt(parts[0], 10);
@@ -47,7 +46,6 @@ function DatePicker({
   useEffect(() => {
     if (anchorRef?.current) {
       const rect = anchorRef.current.getBoundingClientRect();
-      // calendar is ~260px tall; if less than 280px below, open upward
       setOpenUp(window.innerHeight - rect.bottom < 280);
     }
   }, [anchorRef]);
@@ -69,9 +67,7 @@ function DatePicker({
     else setViewMonth((m) => m + 1);
   }
 
-  // Build calendar grid: weeks starting Monday
   const firstDay = new Date(viewYear, viewMonth, 1);
-  // getDay(): 0=Sun,1=Mon,...6=Sat → shift so Mon=0
   const startOffset = (firstDay.getDay() + 6) % 7;
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
 
@@ -136,7 +132,7 @@ function DatePicker({
   );
 }
 
-function TaskMenu({ onClose }: { onClose: () => void }) {
+function TaskMenu({ onDelete, onClose }: { onDelete: () => void; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -152,7 +148,10 @@ function TaskMenu({ onClose }: { onClose: () => void }) {
       ref={ref}
       className="absolute right-0 top-6 z-10 bg-white rounded-lg shadow-lg border border-[#BDBDBD] w-[126px] overflow-hidden"
     >
-      <button className="w-full px-4 py-3 text-left text-sm text-[#EB5757] font-semibold hover:bg-[#F5F5F5] transition-colors">
+      <button
+        onClick={() => { onDelete(); onClose(); }}
+        className="w-full px-4 py-3 text-left text-sm text-[#EB5757] font-semibold hover:bg-[#F5F5F5] transition-colors"
+      >
         Delete
       </button>
     </div>
@@ -285,9 +284,13 @@ function NewTaskForm({ onSave, onCancel }: { onSave: (task: Task) => void; onCan
 function TaskItem({
   task,
   onToggle,
+  onDelete,
+  onUpdate,
 }: {
   task: Task & { expanded: boolean };
   onToggle: (id: string) => void;
+  onDelete: (id: string) => void;
+  onUpdate: (id: string, patch: Partial<Omit<Task, "id">>) => void;
 }) {
   const [checked, setChecked] = useState(task.completed);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -303,11 +306,29 @@ function TaskItem({
     setTimeout(() => textareaRef.current?.focus(), 0);
   }
 
+  function handleCheckbox() {
+    const next = !checked;
+    setChecked(next);
+    onUpdate(task.id, { completed: next });
+  }
+
+  function handleDateChange(val: string) {
+    setDueDate(val);
+    onUpdate(task.id, { dueDate: val });
+  }
+
+  function handleDescBlur() {
+    setEditingDesc(false);
+    if (desc !== task.description) {
+      onUpdate(task.id, { description: desc });
+    }
+  }
+
   return (
     <div className="border-b border-[#BDBDBD] last:border-b-0">
       <div className="flex items-start gap-3 px-5 py-4">
         <button
-          onClick={() => setChecked((v) => !v)}
+          onClick={handleCheckbox}
           className={`mt-0.5 w-4 h-4 rounded shrink-0 border flex items-center justify-center transition-colors ${
             checked
               ? "bg-white border-[#828282]"
@@ -347,7 +368,12 @@ function TaskItem({
                 >
                   <MoreHorizontal size={14} />
                 </button>
-                {menuOpen && <TaskMenu onClose={() => setMenuOpen(false)} />}
+                {menuOpen && (
+                  <TaskMenu
+                    onDelete={() => onDelete(task.id)}
+                    onClose={() => setMenuOpen(false)}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -370,7 +396,7 @@ function TaskItem({
               {datePickerOpen && (
                 <DatePicker
                   value={dueDate}
-                  onChange={setDueDate}
+                  onChange={handleDateChange}
                   onClose={() => setDatePickerOpen(false)}
                   anchorRef={dateButtonRef}
                 />
@@ -393,7 +419,7 @@ function TaskItem({
                 ref={textareaRef}
                 value={desc}
                 onChange={(e) => setDesc(e.target.value)}
-                onBlur={() => setEditingDesc(false)}
+                onBlur={handleDescBlur}
                 rows={3}
                 className="flex-1 border border-[#BDBDBD] rounded px-3 py-2 text-sm text-[#333333] outline-none focus:border-[#2F80ED] transition-colors resize-none"
                 placeholder="No Description"
@@ -440,23 +466,61 @@ export default function TaskPanel() {
     fetch("/api/tasks")
       .then((r) => r.json())
       .then((data: Task[]) =>
-        setTasks(
-          data.map((t) => ({
-            ...t,
-            expanded: !t.completed,
-          }))
-        )
+        setTasks(data.map((t) => ({ ...t, expanded: !t.completed })))
       )
       .finally(() => setLoading(false));
   }, []);
 
   function toggleExpand(id: string) {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, expanded: !t.expanded } : t))
-    );
-    setNewTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, expanded: !t.expanded } : t))
-    );
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, expanded: !t.expanded } : t)));
+    setNewTasks((prev) => prev.map((t) => (t.id === id ? { ...t, expanded: !t.expanded } : t)));
+  }
+
+  function handleDelete(id: string) {
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+    setNewTasks((prev) => prev.filter((t) => t.id !== id));
+    fetch(`/api/tasks/${id}`, { method: "DELETE" });
+  }
+
+  function handleUpdate(id: string, patch: Partial<Omit<Task, "id">>) {
+    const applyPatch = (list: TaskEntry[]) => list.map((t) => (t.id === id ? { ...t, ...patch } : t));
+    setTasks(applyPatch);
+    setNewTasks(applyPatch);
+
+    const source = [...tasks, ...newTasks].find((t) => t.id === id);
+    if (source) {
+      const { id: _id, expanded: _exp, ...taskData } = { ...source, ...patch } as Task & { expanded: boolean };
+      fetch(`/api/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(taskData),
+      });
+    }
+  }
+
+  async function handleNewTaskSave(newTask: Task) {
+    const tempId = newTask.id;
+    setNewTasks((prev) => [...prev, { ...newTask, expanded: true }]);
+    setAddingTask(false);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newTask.title,
+          dueDate: newTask.dueDate,
+          daysLeft: newTask.daysLeft,
+          description: newTask.description,
+          completed: newTask.completed,
+        }),
+      });
+      if (res.ok) {
+        const { id: realId } = await res.json();
+        setNewTasks((prev) => prev.map((t) => (t.id === tempId ? { ...t, id: realId } : t)));
+      }
+    } catch {
+      // Network failure — the task remains with its client-generated id until the next page load
+    }
   }
 
   const sorted = [...tasks].sort((a, b) => {
@@ -505,18 +569,18 @@ export default function TaskPanel() {
           </div>
         ) : (
           <>
-            {sorted.map((task) => (
-              <TaskItem key={task.id} task={task} onToggle={toggleExpand} />
-            ))}
-            {newTasks.map((task) => (
-              <TaskItem key={task.id} task={task} onToggle={toggleExpand} />
+            {[...sorted, ...newTasks].map((task) => (
+              <TaskItem
+                key={task.id}
+                task={task}
+                onToggle={toggleExpand}
+                onDelete={handleDelete}
+                onUpdate={handleUpdate}
+              />
             ))}
             {addingTask && (
               <NewTaskForm
-                onSave={(newTask) => {
-                  setNewTasks((prev) => [...prev, { ...newTask, expanded: true }]);
-                  setAddingTask(false);
-                }}
+                onSave={handleNewTaskSave}
                 onCancel={() => setAddingTask(false)}
               />
             )}

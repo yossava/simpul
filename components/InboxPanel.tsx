@@ -12,7 +12,26 @@ const SENDER_COLORS = [
   { name: "#2F80ED", bubble: "bg-[#D5E8FD] border border-[#2F80ED]" },
 ];
 
-function MessageMenu({ isOwn, onClose }: { isOwn: boolean; onClose: () => void }) {
+function now12h(): string {
+  const d = new Date();
+  const h = d.getHours() % 12 || 12;
+  const m = d.getMinutes().toString().padStart(2, "0");
+  return `${h}:${m} ${d.getHours() < 12 ? "AM" : "PM"}`;
+}
+
+function MessageMenu({
+  isOwn,
+  onEdit,
+  onDelete,
+  onReply,
+  onClose,
+}: {
+  isOwn: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+  onReply: () => void;
+  onClose: () => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -30,19 +49,55 @@ function MessageMenu({ isOwn, onClose }: { isOwn: boolean; onClose: () => void }
         isOwn ? "right-full mr-2" : "left-full ml-2"
       }`}
     >
-      <button className="w-full px-4 py-3 text-left text-sm text-[#2F80ED] font-semibold hover:bg-[#F5F5F5] transition-colors border-b border-[#BDBDBD]">
-        Edit
-      </button>
-      <button className="w-full px-4 py-3 text-left text-sm text-[#EB5757] font-semibold hover:bg-[#F5F5F5] transition-colors">
-        Delete
-      </button>
+      {isOwn ? (
+        <>
+          <button
+            onClick={() => { onEdit(); onClose(); }}
+            className="w-full px-4 py-3 text-left text-sm text-[#2F80ED] font-semibold hover:bg-[#F5F5F5] transition-colors border-b border-[#BDBDBD]"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => { onDelete(); onClose(); }}
+            className="w-full px-4 py-3 text-left text-sm text-[#EB5757] font-semibold hover:bg-[#F5F5F5] transition-colors"
+          >
+            Delete
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            onClick={onClose}
+            className="w-full px-4 py-3 text-left text-sm text-[#2F80ED] font-semibold hover:bg-[#F5F5F5] transition-colors border-b border-[#BDBDBD]"
+          >
+            Share
+          </button>
+          <button
+            onClick={() => { onReply(); onClose(); }}
+            className="w-full px-4 py-3 text-left text-sm text-[#2F80ED] font-semibold hover:bg-[#F5F5F5] transition-colors"
+          >
+            Reply
+          </button>
+        </>
+      )}
     </div>
   );
 }
 
-function ChatDetail({ chat, onBack }: { chat: Chat; onBack: () => void }) {
+function ChatDetail({
+  chat,
+  onBack,
+  onMessagesChange,
+}: {
+  chat: Chat;
+  onBack: () => void;
+  onMessagesChange: (messages: ChatMessage[]) => void;
+}) {
   const [input, setInput] = useState("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const closeMenu = useCallback(() => setOpenMenuId(null), []);
 
@@ -58,7 +113,7 @@ function ChatDetail({ chat, onBack }: { chat: Chat; onBack: () => void }) {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chat]);
+  }, [chat.id, chat.messages.length]);
 
   chat.messages.forEach((m) => {
     if (!m.isOwn) getOrAssignColor(m.sender);
@@ -66,9 +121,54 @@ function ChatDetail({ chat, onBack }: { chat: Chat; onBack: () => void }) {
 
   const newMessageIdx = chat.messages.findIndex((m) => m.isNew);
 
+  function patchMessages(updated: ChatMessage[]) {
+    onMessagesChange(updated);
+    const { id: _id, ...chatData } = { ...chat, messages: updated };
+    fetch(`/api/chats/${chat.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(chatData),
+    });
+  }
+
+  function handleSend() {
+    if (!input.trim()) return;
+    const newMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      sender: "You",
+      text: input.trim(),
+      time: now12h(),
+      isOwn: true,
+      ...(replyTo ? { replyTo: { sender: replyTo.sender, text: replyTo.text } } : {}),
+    };
+    const updated = [...chat.messages, newMsg];
+    patchMessages(updated);
+    setInput("");
+    setReplyTo(null);
+  }
+
+  function handleDelete(msgId: string) {
+    const updated = chat.messages.filter((m) => m.id !== msgId);
+    patchMessages(updated);
+  }
+
+  function handleEditStart(msg: ChatMessage) {
+    setEditingId(msg.id);
+    setEditText(msg.text);
+  }
+
+  function handleEditSave(msgId: string) {
+    if (!editText.trim()) return;
+    const updated = chat.messages.map((m) =>
+      m.id === msgId ? { ...m, text: editText.trim() } : m
+    );
+    patchMessages(updated);
+    setEditingId(null);
+  }
+
   return (
     <div className="flex flex-col h-full">
-      <div className="px-5 py-3 border-b border-[#BDBDBD] flex items-start gap-3 flex-shrink-0">
+      <div className="px-5 py-3 border-b border-[#BDBDBD] flex items-start gap-3 shrink-0">
         <button
           onClick={onBack}
           className="mt-0.5 text-[#333333] hover:opacity-70 transition-opacity"
@@ -96,6 +196,7 @@ function ChatDetail({ chat, onBack }: { chat: Chat; onBack: () => void }) {
           const showDate = msg.dateLabel != null;
           const showNewDivider = i === newMessageIdx && newMessageIdx > 0;
           const senderStyle = !msg.isOwn ? getOrAssignColor(msg.sender) : null;
+          const isEditing = editingId === msg.id;
 
           return (
             <div key={msg.id}>
@@ -129,7 +230,13 @@ function ChatDetail({ chat, onBack }: { chat: Chat; onBack: () => void }) {
                       <MoreHorizontal size={16} />
                     </button>
                     {openMenuId === msg.id && (
-                      <MessageMenu isOwn={true} onClose={closeMenu} />
+                      <MessageMenu
+                        isOwn={true}
+                        onEdit={() => handleEditStart(msg)}
+                        onDelete={() => handleDelete(msg.id)}
+                        onReply={() => setReplyTo(msg)}
+                        onClose={closeMenu}
+                      />
                     )}
                   </div>
                 )}
@@ -143,6 +250,12 @@ function ChatDetail({ chat, onBack }: { chat: Chat; onBack: () => void }) {
                   {msg.isOwn && (
                     <span className="text-xs font-bold mb-1 text-[#9B51E0]">You</span>
                   )}
+                  {msg.replyTo && (
+                    <div className="mb-1 px-3 py-2 rounded-md bg-[#F2F2F2] border border-[#BDBDBD] text-sm text-[#333333]">
+                      <p className="text-xs font-bold text-[#2F80ED] mb-0.5">{msg.replyTo.sender}</p>
+                      <p className="text-xs text-[#4F4F4F] line-clamp-2 leading-snug">{msg.replyTo.text}</p>
+                    </div>
+                  )}
                   <div
                     className={`px-3 py-2 rounded-md text-sm text-[#333333] leading-relaxed ${
                       msg.isOwn
@@ -150,7 +263,21 @@ function ChatDetail({ chat, onBack }: { chat: Chat; onBack: () => void }) {
                         : senderStyle?.bubble ?? "bg-white border border-[#BDBDBD]"
                     }`}
                   >
-                    {msg.text}
+                    {isEditing ? (
+                      <input
+                        autoFocus
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleEditSave(msg.id);
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                        onBlur={() => handleEditSave(msg.id)}
+                        className="bg-transparent outline-none border-b border-[#9B51E0] w-full text-sm"
+                      />
+                    ) : (
+                      msg.text
+                    )}
                     <div className={`text-[10px] text-[#828282] mt-1 ${msg.isOwn ? "text-right" : "text-left"}`}>
                       {msg.time}
                     </div>
@@ -166,7 +293,13 @@ function ChatDetail({ chat, onBack }: { chat: Chat; onBack: () => void }) {
                       <MoreHorizontal size={16} />
                     </button>
                     {openMenuId === msg.id && (
-                      <MessageMenu isOwn={false} onClose={closeMenu} />
+                      <MessageMenu
+                        isOwn={false}
+                        onEdit={() => handleEditStart(msg)}
+                        onDelete={() => handleDelete(msg.id)}
+                        onReply={() => setReplyTo(msg)}
+                        onClose={closeMenu}
+                      />
                     )}
                   </div>
                 )}
@@ -187,16 +320,31 @@ function ChatDetail({ chat, onBack }: { chat: Chat; onBack: () => void }) {
         </div>
       )}
 
-      <div className="px-5 py-3 border-t border-[#BDBDBD] flex gap-2 flex-shrink-0">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Type a new message"
-          className="flex-1 border border-[#BDBDBD] rounded px-3 py-2 text-sm outline-none focus:border-[#2F80ED] transition-colors"
-        />
+      <div className="px-5 py-3 border-t border-[#BDBDBD] flex items-end gap-2 shrink-0">
+        <div className="flex-1 flex flex-col min-w-0">
+          {replyTo && (
+            <div className="border border-b-0 border-[#BDBDBD] rounded-t-md bg-[#F5F5F5] px-3 py-2 flex items-start gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-[#2F80ED]">Replying to {replyTo.sender}</p>
+                <p className="text-xs text-[#4F4F4F] truncate">{replyTo.text}</p>
+              </div>
+              <button onClick={() => setReplyTo(null)} className="text-[#828282] hover:text-[#333333] shrink-0 mt-0.5">
+                <X size={14} />
+              </button>
+            </div>
+          )}
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleSend(); }}
+            placeholder="Type a new message"
+            className={`w-full border border-[#BDBDBD] px-3 py-2 text-sm outline-none focus:border-[#2F80ED] transition-colors ${replyTo ? "rounded-b-md rounded-t-none" : "rounded"}`}
+          />
+        </div>
         <button
-          className="bg-[#2F80ED] text-white px-4 py-2 rounded text-sm font-semibold hover:bg-[#2567c4] transition-colors disabled:opacity-50"
+          onClick={handleSend}
+          className="bg-[#2F80ED] text-white px-4 py-2 rounded text-sm font-semibold hover:bg-[#2567c4] transition-colors disabled:opacity-50 shrink-0"
           disabled={!input.trim()}
         >
           Send
@@ -225,7 +373,7 @@ function InboxList({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 pt-4 pb-2 flex-shrink-0">
+      <div className="px-4 pt-4 pb-2 shrink-0">
         <div className="relative">
           <input
             type="text"
@@ -264,7 +412,7 @@ function InboxList({
                     <span className="text-[#2F80ED] font-bold text-sm leading-tight line-clamp-1">
                       {chat.title}
                     </span>
-                    <span className="text-[#828282] text-xs whitespace-nowrap flex-shrink-0">
+                    <span className="text-[#828282] text-xs whitespace-nowrap shrink-0">
                       {chat.lastDate}
                     </span>
                   </div>
@@ -278,7 +426,7 @@ function InboxList({
                       </p>
                     </div>
                     {chat.unread && (
-                      <div className="w-2 h-2 rounded-full bg-[#EB5757] flex-shrink-0 ml-2 mt-1" />
+                      <div className="w-2 h-2 rounded-full bg-[#EB5757] shrink-0 ml-2 mt-1" />
                     )}
                   </div>
                 </div>
@@ -297,7 +445,7 @@ function InboxList({
 export default function InboxPanel({ onClose }: { onClose: () => void }) {
   const [chats, setChats] = useState<Chat[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -307,17 +455,26 @@ export default function InboxPanel({ onClose }: { onClose: () => void }) {
       .finally(() => setLoading(false));
   }, []);
 
+  const selectedChat = chats.find((c) => c.id === selectedChatId) ?? null;
+
+  function handleMessagesChange(messages: ChatMessage[]) {
+    setChats((prev) =>
+      prev.map((c) => (c.id === selectedChatId ? { ...c, messages } : c))
+    );
+  }
+
   return (
     <div className="w-[500px] h-[600px] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden">
       {selectedChat ? (
         <ChatDetail
           chat={selectedChat}
-          onBack={() => setSelectedChat(null)}
+          onBack={() => setSelectedChatId(null)}
+          onMessagesChange={handleMessagesChange}
         />
       ) : (
         <InboxList
           chats={chats}
-          onSelect={setSelectedChat}
+          onSelect={(chat) => setSelectedChatId(chat.id)}
           loading={loading}
           search={search}
           onSearch={setSearch}
